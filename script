@@ -1,0 +1,209 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+
+local lp = Players.LocalPlayer
+local char, hrp, hum
+
+local function resolveChar()
+    char = lp.Character or lp.CharacterAdded:Wait()
+    hrp = char:WaitForChild("HumanoidRootPart", 10)
+    hum = char:WaitForChild("Humanoid", 10)
+end
+resolveChar()
+
+getgenv().BABFT_Active = false
+
+local menuClicks = {
+    {x=1802, y=466},
+    {x=887,  y=201},
+    {x=400,  y=402},
+    {x=1468, y=866},
+    {x=828,  y=756},
+    {x=1577, y=187},
+    {x=110,  y=547},
+    {x=772,  y=746},
+}
+
+local goldClick = {x=962, y=775}
+
+-- exact Y from player position logs -- these are the checkpoint trigger heights
+local waypoints = {
+    {pos = Vector3.new(-62.90,  49.21,  451.69),  hover = 5},
+    {pos = Vector3.new(-57.54,  52.17,  1716.19), hover = 5},
+    {pos = Vector3.new(-47.13,  46.78,  2486.69), hover = 5},
+    {pos = Vector3.new(-49.86,  52.51,  3238.94), hover = 5},
+    {pos = Vector3.new(-55.22,  49.33,  4142.67), hover = 5},
+    {pos = Vector3.new(-56.89,  50.64,  4817.11), hover = 5},
+    {pos = Vector3.new(-67.12,  64.36,  5650.96), hover = 5},
+    {pos = Vector3.new(-76.08,  76.49,  6382.24), hover = 5},
+    {pos = Vector3.new(-55.63,  89.70,  7178.33), hover = 5},
+    {pos = Vector3.new(-73.49,  69.54,  8453.42), hover = 5},
+    {pos = Vector3.new(-78.71,  62.88,  8731.18), hover = 0},
+    {pos = Vector3.new(-56.90, -242.21, 8778.35), hover = 0},
+    {pos = Vector3.new(-52.94, -254.82, 9440.88), hover = 0},
+    {pos = Vector3.new(-55.75, -360.41, 9486.33), hover = 2.5},
+}
+
+local noclipConn, flyConn
+
+local function enableNoclip()
+    if noclipConn then noclipConn:Disconnect() end
+    noclipConn = RunService.Stepped:Connect(function()
+        if not char then return end
+        for _, p in ipairs(char:GetDescendants()) do
+            if p:IsA("BasePart") then p.CanCollide = false end
+        end
+    end)
+end
+
+local function disableNoclip()
+    if noclipConn then noclipConn:Disconnect(); noclipConn = nil end
+end
+
+local function lockPhysics()
+    if hum then hum:ChangeState(Enum.HumanoidStateType.Physics) end
+    if hum then hum.Sit = false end
+    if hrp then
+        hrp.AssemblyLinearVelocity = Vector3.zero
+        hrp.AssemblyAngularVelocity = Vector3.zero
+    end
+end
+
+local function pinAt(pos, duration)
+    if flyConn then flyConn:Disconnect() end
+    flyConn = RunService.Heartbeat:Connect(function()
+        if not hrp or not hum then return end
+        lockPhysics()
+        hrp.CFrame = CFrame.new(pos)
+    end)
+    task.wait(duration)
+    flyConn:Disconnect()
+    flyConn = nil
+end
+
+local function flyTo(target, speed)
+    local dist = (hrp.Position - target).Magnitude
+    local duration = math.max(dist / speed, 0.3)
+    local info = TweenInfo.new(duration, Enum.EasingStyle.Linear)
+    local tween = TweenService:Create(hrp, info, {CFrame = CFrame.new(target)})
+    local moveConn = RunService.Heartbeat:Connect(function()
+        lockPhysics()
+    end)
+    tween:Play()
+    tween.Completed:Wait()
+    moveConn:Disconnect()
+end
+
+local function click(x, y, delay)
+    VirtualInputManager:SendMouseMoveEvent(x, y, game)
+    task.wait(0.08)
+    VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 1)
+    task.wait(0.06)
+    VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 1)
+    task.wait(delay or 0.5)
+end
+
+local function doRun()
+    resolveChar()
+    enableNoclip()
+
+    -- pin in place, fire all clicks (spawn boat + launch)
+    local startPin = hrp.Position + Vector3.new(0, 15, 0)
+    flyConn = RunService.Heartbeat:Connect(function()
+        if not hrp or not hum then return end
+        lockPhysics()
+        hrp.CFrame = CFrame.new(startPin)
+    end)
+    for _, c in ipairs(menuClicks) do
+        click(c.x, c.y, 0.6)
+    end
+    flyConn:Disconnect(); flyConn = nil
+    task.wait(2)
+
+    -- fly each checkpoint
+    for _, wp in ipairs(waypoints) do
+        if not getgenv().BABFT_Active then break end
+        flyTo(wp.pos, 100)
+        pinAt(wp.pos, wp.hover)
+    end
+
+    -- claim gold click
+    click(goldClick.x, goldClick.y, 0.5)
+    task.wait(2)
+
+    -- reset character, wait for respawn
+    local h = lp.Character and lp.Character:FindFirstChildOfClass("Humanoid")
+    if h then h.Health = 0 end
+    task.wait(6)
+end
+
+local function runFarm()
+    while getgenv().BABFT_Active do
+        pcall(doRun)
+        if getgenv().BABFT_Active then
+            task.wait(1)
+            resolveChar()
+            enableNoclip()
+        end
+    end
+    disableNoclip()
+end
+
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "BABFT_Menu"
+screenGui.ResetOnSpawn = false
+pcall(function()
+    if syn then syn.protect_gui(screenGui) end
+    if gethui then screenGui.Parent = gethui() else screenGui.Parent = game:GetService("CoreGui") end
+end)
+if not screenGui.Parent then screenGui.Parent = lp.PlayerGui end
+
+local frame = Instance.new("Frame", screenGui)
+frame.Size = UDim2.new(0, 200, 0, 90)
+frame.Position = UDim2.new(0.01, 0, 0.3, 0)
+frame.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
+frame.BorderSizePixel = 0
+frame.Active = true
+frame.Draggable = true
+Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 8)
+
+local title = Instance.new("TextLabel", frame)
+title.Size = UDim2.new(1, 0, 0, 28)
+title.BackgroundTransparency = 1
+title.Text = "Build A Boat | Farm"
+title.TextColor3 = Color3.fromRGB(220, 220, 255)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 13
+
+local toggleBtn = Instance.new("TextButton", frame)
+toggleBtn.Size = UDim2.new(0.88, 0, 0, 34)
+toggleBtn.Position = UDim2.new(0.06, 0, 0.38, 0)
+toggleBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 80)
+toggleBtn.TextColor3 = Color3.fromRGB(200, 200, 255)
+toggleBtn.Font = Enum.Font.Gotham
+toggleBtn.TextSize = 13
+toggleBtn.Text = "Auto Farm: OFF"
+toggleBtn.BorderSizePixel = 0
+Instance.new("UICorner", toggleBtn).CornerRadius = UDim.new(0, 6)
+
+toggleBtn.MouseButton1Click:Connect(function()
+    getgenv().BABFT_Active = not getgenv().BABFT_Active
+    if getgenv().BABFT_Active then
+        toggleBtn.Text = "Auto Farm: ON"
+        toggleBtn.BackgroundColor3 = Color3.fromRGB(40, 90, 60)
+        task.spawn(runFarm)
+    else
+        toggleBtn.Text = "Auto Farm: OFF"
+        toggleBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 80)
+        disableNoclip()
+        if flyConn then flyConn:Disconnect(); flyConn = nil end
+    end
+end)
+
+lp.CharacterAdded:Connect(function(newChar)
+    char = newChar
+    hrp = newChar:WaitForChild("HumanoidRootPart", 10)
+    hum = newChar:WaitForChild("Humanoid", 10)
+end)
